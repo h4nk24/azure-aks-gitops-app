@@ -4,7 +4,7 @@ metadata:
   name: azure-gitops-app
   namespace: demo
 spec:
-  replicas: 2
+  replicas: 6
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -30,11 +30,11 @@ spec:
               value: lab
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
+              cpu: 700m
               memory: 256Mi
+            limits:
+              cpu: 700m
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /healthz
