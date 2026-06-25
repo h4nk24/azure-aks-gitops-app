@@ -1,0 +1,84 @@
+name: Build image and update GitOps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/ci.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: azure-lab
+  cancel-in-progress: false
+
+jobs:
+  build-publish-update:
+    runs-on: ubuntu-latest
+    environment: azure-lab
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set image tag
+        id: meta
+        shell: bash
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Test
+        working-directory: app
+        run: |
+          npm ci
+          npm test
+
+      - name: Log in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name "${{ vars.AZURE_ACR_NAME }}"
+
+      - name: Build and push image
+        working-directory: app
+        run: |
+          IMAGE="${{ vars.AZURE_ACR_NAME }}.azurecr.io/azure-aks-gitops-app:${{ steps.meta.outputs.tag }}"
+          docker version
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Update image tag
+        working-directory: deploy/overlays/lab
+        run: |
+          kustomize edit set image \
+            APP_IMAGE=${{ vars.AZURE_ACR_NAME }}.azurecr.io/azure-aks-gitops-app:${{ steps.meta.outputs.tag }}
+
+      - name: Commit GitOps change
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/overlays/lab/kustomization.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(gitops): deploy ${{ steps.meta.outputs.tag }}"
+          git push

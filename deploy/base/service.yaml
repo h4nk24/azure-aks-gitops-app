@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-gitops-app
+  namespace: demo
+spec:
+  selector:
+    app: azure-gitops-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
